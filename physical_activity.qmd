@@ -1,0 +1,148 @@
+---
+title: "Physical Activity Dashboard"
+format:
+    dashboard: 
+        theme: styles.scss
+execute:
+    echo: false
+---
+
+
+```{python}
+import pandas as pd
+import plotly.express as px
+import seaborn as sns
+from itables import show
+
+#Load data
+physical_activity = pd.read_csv('physical_activity.csv')
+
+physical_activity['status'] = physical_activity['status'].replace({'Adulte': 'Adult', 'Enfant': 'Infant', 'adult': 'Adult'})
+
+# convert columns to numeric(handling 'missing' strings)
+cols = ['bmi', 'sedentary_ap_s_day', 'light_ap_s_day', 'mvpa_s_day']
+for col in cols:
+    physical_activity[col] = pd.to_numeric(physical_activity[col], errors='coerce')
+
+# drop missing values for recommendations to ensure clarity
+physical_activity = physical_activity.dropna(subset=['oms_recommendation'])
+
+# convert seconds to minutes/hours
+physical_activity['mvpa_min_day'] = physical_activity['mvpa_s_day'] / 60
+
+physical_activity['sedentary_min_day'] = physical_activity['sedentary_ap_s_day'] / 60
+
+physical_activity['light_min_day'] = physical_activity['light_ap_s_day'] / 60
+
+physical_activity['sedentary_hours_day'] = physical_activity['sedentary_ap_s_day'] / 3600
+
+# valueboxes
+avg_bmi = physical_activity['bmi'].mean()
+
+avg_sedentary = physical_activity['sedentary_hours_day'].mean()
+
+pct_who = (physical_activity['oms_recommendation'] == 'Yes').mean() * 100
+total_n = len(physical_activity)
+
+# Figure 1: Average MVPA
+fig_mvpa = physical_activity.groupby(['status', 'sex'])['mvpa_min_day'].mean().reset_index()
+
+fig_mvpa = px.bar(fig_mvpa, x="status", y="mvpa_min_day", color="sex", barmode="group", color_discrete_map={'M': '#2c3e50', 'F': '#e67e22'}, labels={"mvpa_min_day": "Minutes/Day", "status": "Age Group"}, template="simple_white")
+
+# Figure 2: WHO Proportion
+who_data = pd.crosstab(physical_activity['status'], physical_activity['oms_recommendation'], normalize='index').reset_index()
+
+who_data = who_data.melt(id_vars='status', var_name='Recommendation', value_name='Percentage')
+
+who_data['Percentage'] = who_data['Percentage'] * 100
+
+who_data = px.bar(who_data, x="status", y="Percentage", color="Recommendation", color_discrete_map={'Yes': '#16a085', 'No': '#d35400'}, labels={"status": "Age Group"}, template="simple_white")
+
+
+fig_bmi_mvpa = px.scatter(physical_activity, x="bmi", y="mvpa_min_day", color="oms_recommendation",color_discrete_map={'Yes': '#008080', 'No': '#FF8C00'}, labels={"bmi": "BMI (kg/m²)", "mvpa_min_day": "MVPA (min/day)"}, template="simple_white", opacity=0.7)
+
+# Figure 4: Distribution
+fig_dist = px.box(physical_activity, x="sex", y="mvpa_min_day", color="sex", labels={"mvpa_min": "Minutes per Day"}, template="simple_white")
+
+```
+
+# Dashboard overview
+## Row {height="20%"}
+
+```{python}
+#| content: valuebox
+#| title: "Average BMI"
+dict(icon = "person-arms-up", color = "#7f1d1d", value = f"{avg_bmi:.1f}")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Avg Sedentary Time"
+dict(icon = "clock-history", color = "warning", value = f"{avg_sedentary:.1f} hrs")
+```
+
+```{python}
+#| content: valuebox
+#| title: "WHO Adherence"
+dict(icon = "check2-circle", color = "success", value = f"{pct_who:.1f}%")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Total Participants"
+dict(icon = "people", color = "#7c3aed", value = total_n)
+```
+
+## Row {height=80%}
+
+```{python}
+fig_mvpa
+```
+
+
+```{python}
+who_data
+```
+
+# Correlation
+## Row 
+
+```{python}
+fig_bmi_mvpa
+```
+
+## Row
+```{python}
+fig_dist
+```
+
+# About
+This dashboard analyzes physical activity trends. 
+
+```{python}
+# Data Source
+
+from itables import show
+
+# Select and rename columns for a cleaner display
+table_data = physical_activity[[
+    'sex', 'status', 'bmi', 
+    'mvpa_min_day', 'sedentary_hours_day', 
+    'oms_recommendation'
+]].copy()
+
+# Round numeric values for professional look
+table_data['bmi'] = table_data['bmi'].round(1)
+table_data['mvpa_min_day'] = table_data['mvpa_min_day'].round(1)
+table_data['sedentary_hours_day'] = table_data['sedentary_hours_day'].round(1)
+
+show(
+    table_data, 
+    caption="Physical Activity Participant Data",
+    classes="display nowrap compact", 
+    buttons=["csv", "excel"],
+    # These settings ensure the table fits nicely in the dashboard
+    maxBytes=0, 
+    autoWidth=True
+)
+```
