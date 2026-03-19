@@ -1,0 +1,163 @@
+---
+title: "Finance Dashboard"
+format:
+    dashboard:
+        theme: spacelab
+        orientation: rows
+execute:
+    echo: false
+    warning: false
+---
+
+```{python}
+#| results: hide
+import pandas as pd
+import plotly.express as px
+import itables.options as opt
+from itables import show
+
+# load data
+finance_data = pd.read_csv('finance.csv')
+
+# data cleaning
+finance_data.columns = finance_data.columns.str.strip()
+
+# Rename common columns for ease of use
+column_mapping = {
+    'Totals.Capital outlay': 'total_capital',
+    'Totals.Revenue': 'revenue',
+    'Totals.Expenditure': 'expenditure',
+    'Totals.General expenditure': 'total_gen_exp',
+    'Totals.General revenue': 'total_gen_rev',
+    'Totals.Insurance trust  revenue': 'total_ins_trust', 
+    'Totals.Intergovernmental': 'total_intgov',
+    'Totals.License tax': 'total_tax',
+    'Details.Welfare.Welfare Institution Total Expenditure': 'welf_total_exp',
+    'Details.Natural Resources.Parks.Parks Total Expenditure': 'park_exp',
+    'Details.Transportation.Highways.Highways Total Expenditure': 'highway_exp',
+    'Totals. Debt at end of fiscal year': 'total_debt',
+    'Details.Insurance benefits and repayments': 'benef_rep',
+    'Details.Interest on debt': 'int_debt',
+    'Details.Interest on general debt': 'int_gen_debt',
+    'Details.Miscellaneous general revenue': 'mis_rev',
+    'Details.Other taxes': 'other_taxes',
+    'Details.Police protection': 'pol_prot',
+    'Details.Education.Education Total': 'education',
+    'Details.Health.Health Total Expenditure': 'health',
+    'Details.Welfare.Welfare Institution Total Expenditure': 'welfare',
+    'Details.Transportation.Highways.Highways Total Expenditure': 'transportation'
+}
+    
+finance_data = finance_data.rename(columns=column_mapping)
+
+# remove US aggregate 
+states_data = finance_data.query("State != 'UNITED STATES'").copy()
+
+# calculate indicators
+states_data['Budget Balance'] = states_data['revenue'] - states_data['expenditure']
+states_data['Debt Ratio'] = (states_data['total_debt'] / states_data['revenue']) * 100
+states_data['Education Share'] = (states_data['education'] / states_data['expenditure']) * 100
+
+# Most Recent Year Data
+latest_year = states_data['Year'].max()
+recent_data = states_data[states_data['Year'] == latest_year].copy()
+
+# state abbreviation for map
+us_abbrev = {
+    "ALABAMA": "AL", "ALASKA": "AK", "ARIZONA": "AZ", "ARKANSAS": "AR", "CALIFORNIA": "CA",
+    "COLORADO": "CO", "CONNECTICUT": "CT", "DELAWARE": "DE", "FLORIDA": "FL", "GEORGIA": "GA",
+    "HAWAII": "HI", "IDAHO": "ID", "ILLINOIS": "IL", "INDIANA": "IN", "IOWA": "IA",
+    "KANSAS": "KS", "KENTUCKY": "KY", "LOUISIANA": "LA", "MAINE": "ME", "MARYLAND": "MD",
+    "MASSACHUSETTS": "MA", "MICHIGAN": "MI", "MINNESOTA": "MN", "MISSISSIPPI": "MS", "MISSOURI": "MO",
+    "MONTANA": "MT", "NEBRASKA": "NE", "NEVADA": "NV", "NEW HAMPSHIRE": "NH", "NEW JERSEY": "NJ",
+    "NEW MEXICO": "NM", "NEW YORK": "NY", "NORTH CAROLINA": "NC", "NORTH DAKOTA": "ND", "OHIO": "OH",
+    "OKLAHOMA": "OK", "OREGON": "OR", "PENNSYLVANIA": "PA", "RHODE ISLAND": "RI", "SOUTH CAROLINA": "SC",
+    "SOUTH DAKOTA": "SD", "TENNESSEE": "TN", "TEXAS": "TX", "UTAH": "UT", "VERMONT": "VT",
+    "VIRGINIA": "VA", "WASHINGTON": "WA", "WEST VIRGINIA": "WV", "WISCONSIN": "WI", "WYOMING": "WY",
+    "DISTRICT OF COLUMBIA": "DC"
+}
+recent_data['code'] = recent_data['State'].map(us_abbrev)
+
+# KPI Calcs
+avg_rev = recent_data['revenue'].mean()
+avg_exp = recent_data['expenditure'].mean()
+avg_debt_ratio = recent_data['Debt Ratio'].mean()
+
+top_exp = recent_data.nlargest(5, 'expenditure')
+exp_bar= px.bar(top_exp, x='State', y='expenditure', color='expenditure', 
+       color_continuous_scale='Viridis', labels={'expenditure': 'Total Expenditure ($)'}, title= "Highest State Expenditure",
+       template='simple_white')
+
+map= px.choropleth(recent_data, locations='code', locationmode='USA-states', color='expenditure',
+              scope='usa', color_continuous_scale='Viridis', title="Total Expenditure by State (2019)")
+
+sector_data = top_exp.melt(id_vars='State', value_vars=['education', 'health', 'welfare', 'transportation'], var_name='sector', value_name='spending')
+
+high_bar = px.bar(sector_data, x='State', y='spending', color='sector', barmode='stack', template='simple_white')
+
+# filtering for trend analysis
+trend_data = states_data[states_data['State'] == 'CALIFORNIA'].sort_values('Year')
+
+trend_line = px.line(trend_data, x='Year', y=['revenue', 'expenditure'], 
+        labels={'value': 'Amount ($)', 'variable': 'Category'},
+        title="California Fiscal Trend (1992-2019)", template='simple_white')
+
+scatter_plot = px.scatter(recent_data, x='revenue', y='total_debt', size='expenditure', color='State',
+           hover_name='State', title="Relationship between State Revenue and Debt",
+           labels={'revenue': 'Total Revenue ($)', 'total_debt': 'Total Debt ($)'},
+           template='simple_white')
+```
+
+# Home
+## Row {height="20%"}
+
+```{python}
+#| content: valuebox
+#| title: "Average State Revenue (2019)"
+dict(icon="cash-stack", color="primary", value=f"${avg_rev/1e6:.1f}B")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Average State Expenditure (2019)"
+dict(icon="cart-check", color="info", value=f"${avg_exp/1e6:.1f}B")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Average Debt Ratio (2019)"
+dict(icon="percent", color="danger", value=f"{avg_debt_ratio:.1f}%")
+```
+
+## Row {height="60%"}
+
+```{python}
+exp_bar
+```
+
+```{python}
+map
+```
+
+# Trend
+## Row {height="50%"}
+
+```{python}
+trend_line
+```
+
+## Row {height="50%"}
+
+```{python}
+scatter_plot
+```
+
+# Data Source
+
+```{python}
+opt.features = ["paging", "ordering", "info", "buttons"]
+table_data = states_data[['State', 'Year', 'revenue', 'expenditure', 'total_debt', 'Budget Balance', 'Debt Ratio']].copy()
+
+show(table_data, caption="U.S. State Finance Historical Data", 
+     classes="display nowrap compact", buttons=["csv", "excel"])
+```
