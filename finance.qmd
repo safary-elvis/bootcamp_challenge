@@ -1,5 +1,6 @@
 ---
 title: "Finance Dashboard"
+author: Elvis Safary
 format:
     dashboard:
         theme: spacelab

@@ -1,5 +1,6 @@
 ---
 title: "Physical Activity Dashboard"
+author: Elvis Safary
 format:
     dashboard: 
         theme: styles.scss
@@ -77,7 +78,7 @@ dict(icon = "person-arms-up", color = "#7f1d1d", value = f"{avg_bmi:.1f}")
 
 ```{python}
 #| content: valuebox
-#| title: "Avg Sedentary Time"
+#| title: "Average Sedentary Time"
 dict(icon = "clock-history", color = "warning", value = f"{avg_sedentary:.1f} hrs")
 ```
 
