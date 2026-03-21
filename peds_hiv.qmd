@@ -1,0 +1,165 @@
+---
+title: "Pediatric HIV Care Dashboard"
+author: Elvis Safary
+format:
+    dashboard:
+        embed-resources: true
+        orientation: rows
+theme: flatly
+execute:
+    echo: false
+    warning: false
+---
+
+<style>
+.value-box-value { font-size: 1.2rem !important; }
+.value-box-title { font-size: 0.8rem !important; }
+</style>
+
+```{python}
+#| label: setup
+#| include: false
+import pandas as pd
+import plotly.express as px
+import itables.options as opt
+from itables import show
+
+# load data
+ped_hiv = pd.read_csv('yaounde_ped_hiv_survey.csv')
+
+# Rename sex
+ped_hiv['sex'] = ped_hiv['sex'].map({'m': 'Male', 'f': 'Female'})
+
+# data cleaning
+ped_hiv['disease_past_month'] = ped_hiv['disease_past_month'].str.replace(r'\s+', ' ', regex=True).str.strip().str.title()
+
+# handle missing values in ARV treatment
+ped_hiv['arv_treatment'] = ped_hiv['arv_treatment'].fillna('Unknown')
+
+# KPI calculations
+total_children = len(ped_hiv)
+vit_a_pct = (ped_hiv['vitamin_a_received'] == 'Yes').mean() * 100
+most_common_disease = ped_hiv['disease_past_month'].mode()[0]
+male_count = len(ped_hiv[ped_hiv['sex'] == 'Male'])
+female_count = len(ped_hiv[ped_hiv['sex'] == 'Female'])
+# visualizations
+# Top 5 diseases
+top_diseases = ped_hiv['disease_past_month'].value_counts().nlargest(5).reset_index()
+
+#
+fig_diseases = px.bar(top_diseases,     x='count', y='disease_past_month',orientation='h', title="Top 5 Reported Illnesses", labels={'count': 'Number of Cases', 'disease_past_month': 'Illness'}, 
+color='disease_past_month',     color_discrete_sequence=px.colors.qualitative.Vivid)
+
+fig_diseases.update_layout(  showlegend=False,   template="plotly_white", yaxis={'categoryorder':'total ascending'})
+
+# gender pie chart
+fig_gender = px.pie(ped_hiv, names='sex', title="Gender Representation", color='sex', color_discrete_map={'Male': '#3498db', 'Female': '#e74c3c'}, hole=0.3)
+
+fig_gender.update_traces(textposition='inside', textinfo='percent+label')
+
+fig_gender.update_layout(showlegend=False)
+
+# health area clustered by Vitamin A
+fig_health_vit = px.histogram(ped_hiv, x="health_area_name", color="vitamin_a_received",             barmode="group", title="Vitamin A Supplementation by Health Area",        labels={'health_area_name': 'Health Area', 'vitamin_a_received': 'Received Vit A'})
+
+# ARV regimen by sex
+fig_arv = px.bar(ped_hiv, x='arv_treatment', color='sex', title="ARV Regimen by Sex",             barmode='group', labels={'arv_treatment': 'ARV Regimen', 'sex': 'Gender'},               color_discrete_map={'Male': '#457b9d', 'Female': '#e74c3c'})
+
+# Count feeding modes
+feeding_counts = ped_hiv['feeding_mode'].value_counts().reset_index()
+feeding_counts.columns = ['feeding_mode', 'count']
+
+fig_feeding = px.bar(feeding_counts,    y='feeding_mode', x='count',   orientation='h', title="Distribution of Feeding Modes", text='count',   color='feeding_mode',    color_discrete_sequence=px.colors.qualitative.Safe)
+
+fig_feeding.update_layout(   showlegend=False, yaxis={'categoryorder': 'total ascending'}, yaxis_title="", xaxis_title="")
+
+# ARV regimen by sex
+fig_arv = px.bar(ped_hiv, x='arv_treatment', color='sex', title="ARV Regimen by Sex",                barmode='group', labels={'arv_treatment': 'ARV Regimen', 'sex': 'Gender'},                color_discrete_map={'m': '#3498db', 'f': '#e74c3c'})
+
+# water hygiene frequency
+hygiene_order = ["Before each refill", "At least once a day", "At least once a week", "At least once a month", "Never"]
+
+fig_hygiene = px.bar(ped_hiv['water_container_washing_freq'].value_counts().reindex(hygiene_order).reset_index(), x='count',y='water_container_washing_freq', orientation='h',                  title="Water Container Washing Frequency", labels={'count': 'Caregivers', 'water_container_washing_freq': 'Frequency'},color='water_container_washing_freq',      color_discrete_sequence=["#1a9850", "#91cf60", "#fee08b", "#fc8d59", "#d73027"], text_auto=True)
+
+fig_hygiene.update_layout(   showlegend=False, yaxis_title=None,    template="plotly_white")
+
+```
+
+# Home
+## Row {height="15%"}
+
+```{python}
+#| content: valuebox
+#| title: "Total Children"
+dict(icon="people", color="#457b9d", value=total_children)
+```
+
+```{python}
+#| content: valuebox
+#| title: "Vitamin A Coverage"
+dict(icon="capsule", color="#a8dadc", value=f"{vit_a_pct:.1f}%")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Most Frequent Illness"
+dict(icon="thermometer-high", color="warning", value=most_common_disease)
+```
+
+## Row 2 {height="85%"}
+
+### {width="60%"}
+
+```{python}
+fig_diseases
+```
+
+### {width="40%"}
+
+```{python}
+fig_gender
+```
+
+# Trend
+## Row {height="15%"}
+
+```{python}
+#| content: valuebox
+#| title: "Male Patients"
+dict(icon="gender-male", color="info", value=male_count)
+```
+
+```{python}
+#| content: valuebox
+#| title: "Female Patients"
+dict(icon="gender-female", color="danger", value=female_count)
+```
+
+## Row {height="85%"}
+### column {width="50%"}
+
+```{python}
+fig_feeding
+```
+
+```{python}
+fig_hygiene
+```
+
+### column {width="50%"}
+
+```{python}
+top_5_list = top_diseases['disease_past_month'].tolist()
+filtered_df = ped_hiv[ped_hiv['disease_past_month'].isin(top_5_list)]
+
+fig_area_dis = px.histogram(filtered_df, x="health_area_name", color="disease_past_month",               title="Primary Diseases by Health Area", barmode="stack")
+fig_area_dis
+```
+
+# Data
+
+```{python}
+opt.features = ["paging", "ordering", "info", "buttons"]
+show(ped_hiv[['order_number', 'sex', 'health_area_name', 'disease_past_month', 'arv_treatment', 'feeding_mode']], 
+     classes="display nowrap compact", buttons=["csv", "excel"])
+```
