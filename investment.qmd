@@ -1,0 +1,180 @@
+---
+title: "Investment Insights Dashboard"
+author: Elvis Safary
+format:
+    dashboard:
+        embed-resources: true
+        orientation: rows
+theme: Sandstone
+execute:
+    echo: false
+    warning: false
+---
+
+<style>
+.value-box-value { font-size: 1.2rem !important; }
+.value-box-title { font-size: 0.8rem !important; }
+</style>
+
+```{python}
+#| label: setup
+#| include: false
+import pandas as pd
+import plotly.express as px
+import itables.options as opt
+from itables import show
+
+#load data
+investment_data = pd.read_csv('Finance_data.csv')
+
+#data cleaning
+investment_data.columns = investment_data.columns.str.strip()
+
+#KPI calculations
+total_respondents = len(investment_data)
+stock_market_pct = (investment_data['Stock_Marktet'] == 'Yes').mean() * 100
+top_avenue = investment_data['Avenue'].mode()[0]
+most_common_expect = investment_data['Expect'].mode()[0]
+
+top_objective = investment_data['Objective'].mode()[0]
+top_duration = investment_data['Duration'].mode()[0]
+top_factor = investment_data['Factor'].mode()[0]
+top_source = investment_data['Source'].mode()[0]
+
+#data preparation for visuals
+
+#top 5 Investment Options (by Avg Ranking - lower is better rank)
+ranking_cols = ['Mutual_Funds', 'Equity_Market', 'Debentures', 'Government_Bonds', 'Fixed_Deposits', 'PPF', 'Gold']
+avg_ranks = investment_data[ranking_cols].mean().sort_values().head(5).reset_index()
+avg_ranks.columns = ['Avenue', 'Avg_Rank']
+
+#replace underscores for display
+avg_ranks['Avenue'] = avg_ranks['Avenue'].str.replace('_', ' ')
+
+#age Grouping for duration analysis
+def age_group(age):
+    if age <= 25: return '20-25'
+    elif age <= 30: return '26-30'
+    else: return '31-35'
+
+investment_data['age_group'] = investment_data['age'].apply(age_group)
+
+#visualizations
+#gender distribution pie chart
+fig_gender = px.pie(investment_data, names='gender', title="Gender Distribution",           color='gender', color_discrete_map={'Male': '#1e3a8a', 'Female': '#10b981'}, hole=0.4)
+fig_gender.update_traces(textposition='inside', textinfo='percent+label')
+fig_gender.update_layout(showlegend=False)
+
+# top 5 preferred options-bar chart
+fig_top_5 = px.bar(avg_ranks, x='Avg_Rank', y='Avenue', orientation='h', title="Top 5 Preferred Investment Options", labels={'Avg_Rank': 'Average Rank (Lower is Better)', 'Avenue': 'Avenue'}, color='Avg_Rank', color_continuous_scale='GnBu_r')
+fig_top_5.update_layout(showlegend=False, template="plotly_white", yaxis={'categoryorder':'total descending'})
+
+#investment objective by gender-stacked bar chart
+fig_objective = px.histogram(investment_data, x="Objective", color="gender", barmode="stack", title="Investment Objective by Gender", color_discrete_map={'Male': '#1e3a8a', 'Female': '#10b981'})
+fig_objective.update_layout(template="plotly_white", xaxis_title="Objective", yaxis_title="Count")
+
+#investment duration by age group-column chart
+fig_duration = px.histogram(investment_data, x="age_group", color="Duration", barmode="group", title="Investment Duration by Age Group", category_orders={"age_group": ["20-25", "26-30", "31-35"]}, color_discrete_sequence=px.colors.qualitative.Prism)
+fig_duration.update_layout(template="plotly_white", xaxis_title="Age Group", yaxis_title="Number of Respondents")
+
+#expected return percentages-donut chart
+fig_expect = px.pie(investment_data, names='Expect', title="Expected Return Percentages", hole=0.5, color_discrete_sequence=px.colors.qualitative.Safe)
+fig_expect.update_traces(textposition='outside', textinfo='percent+label', pull=[0.05, 0, 0, 0])
+fig_expect.update_layout(showlegend=True, legend_title_text='Return Range',
+    margin=dict(t=50, b=20, l=20, r=20))
+```
+
+# Investor overview
+## Row {height="20%"}
+
+```{python}
+#| content: valuebox
+#| title: "Total Respondents"
+dict(icon="people", color="info", value=total_respondents)
+```
+
+```{python}
+#| content: valuebox
+#| title: "Stock Market Investors"
+dict(icon="graph-up-arrow", color="#10b981", value=f"{stock_market_pct:.1f}%")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Top Avenue"
+dict(icon="trophy", color="info", value=top_avenue)
+```
+
+```{python}
+#| content: valuebox
+#| title: "Most Frequent Expectation"
+dict(icon="bullseye", color="#ef4444", value=most_common_expect)
+```
+
+## Row {height="80%"}
+### {width="60%"}
+
+```{python}
+fig_top_5
+```
+
+### {width="40%"}
+
+```{python}
+fig_gender
+```
+
+# Strategy and Trend
+## Row {height="20%"}
+
+```{python}
+#| content: valuebox
+#| title: "Primary Objective"
+dict(icon="bullseye", color="primary", value=top_objective)
+```
+
+```{python}
+#| content: valuebox
+#| title: "Preferred Duration"
+dict(icon="clock-history", color="#fde047", value=top_duration)
+```
+
+```{python}
+#| content: valuebox
+#| title: "Influencing Factor"
+dict(icon="shield-check", color="success", value=top_factor)
+```
+
+```{python}
+#| content: valuebox
+#| title: "Main Information Source"
+dict(icon="broadcast", color="#bfdbfe", value=top_source)
+```
+
+## Row {height="40%"}
+
+### {width="50%"}
+
+```{python}
+fig_objective
+```
+
+### {width="50%"}
+
+```{python}
+fig_expect
+```
+
+## Row {height="40%"}
+### {width="100%"}
+```{python}
+fig_duration
+```
+
+# Data Source
+
+```{python}
+opt.features = ["paging", "ordering", "info", "buttons"]
+
+show(investment_data[['gender', 'age', 'Investment_Avenues', 'Stock_Marktet', 'Objective', 'Duration', 'Expect', 'Avenue']], classes="display nowrap compact", buttons=["csv", "excel"])
+```
