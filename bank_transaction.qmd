@@ -1,0 +1,266 @@
+---
+title: "Bank Trasaction Dashboard"
+author: Elvis Safary
+format:
+    dashboard:
+        embed-resources: true
+        orientation: rows
+theme: sandstone
+execute:
+    echo: false
+    warning: false
+---
+
+<style>
+.value-box-container {border-radius: 10px;
+box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+transition: transform 0.3s ease, box-shadow 0.3s ease;}
+
+.value-box-container:hover {transform: translateY(-4px);box-shadow: 0 4px 16px rgba(0,0,0,0.15);}
+
+.value-box-value {font-size: 1.8rem !important;font-weight: 700 !important;
+    letter-spacing: -0.5px;}
+
+.value-box-title {font-size: 0.85rem !important;font-weight: 600 !important;
+color: #6b7280; text-transform: uppercase;
+    letter-spacing: 0.5px;}
+
+.dashboard-title {font-size: 2.5rem;   font-weight: 700;margin-bottom: 1rem;    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);   -webkit-background-clip: text;    -webkit-text-fill-color: transparent;
+    background-clip: text;}
+
+.section-header {font-size: 1.5rem;     font-weight: 600;border-left: 4px solid #667eea;padding-left: 12px;
+    margin-bottom: 1.5rem;}
+</style>
+
+```{python}
+#| label: setup
+#| include: false
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import itables.options as opt
+from itables import show
+from datetime import datetime
+
+#load data
+bank_data = pd.read_excel('bank.xlsx', sheet_name='Sheet1')
+
+#data cleaning
+bank_data['Account No'] = bank_data['Account No'].str.replace("'", "", regex=False)
+
+# Convert date and value date columns
+bank_data['DATE'] = pd.to_datetime(bank_data['DATE'], errors='coerce')
+bank_data['VALUE DATE'] = pd.to_datetime(bank_data['VALUE DATE'], errors='coerce')
+
+# Convert amounts to numeric
+bank_data['WITHDRAWAL AMT'] = pd.to_numeric(bank_data['WITHDRAWAL AMT'], errors='coerce').fillna(0)
+bank_data['DEPOSIT AMT'] = pd.to_numeric(bank_data['DEPOSIT AMT'], errors='coerce').fillna(0)
+bank_data['BALANCE AMT'] = pd.to_numeric(bank_data['BALANCE AMT'], errors='coerce').fillna(0)
+
+# Convert Amounts to numeric
+#for col in ['WITHDRAWAL AMT', 'DEPOSIT AMT', 'BALANCE AMT']: bank_data[col] = pd.to_numeric(bank_data[col], errors='coerce').fillna(0)
+
+#mapping the top accounts to friendly names based on their transaction volume
+unique_accs = bank_data['Account No'].unique()
+
+acc_mapping = {acc: f"Client Account {chr(65+i)}" for i, acc in enumerate(unique_accs[:10])}
+
+#fallback for any others
+bank_data['Account_Alias'] = bank_data['Account No'].map(acc_mapping).fillna("Other Portfolio")
+
+# Create new fields
+bank_data['Net_Transaction'] = bank_data['DEPOSIT AMT'] - bank_data['WITHDRAWAL AMT']
+
+bank_data['Large_Transaction_Flag'] = (bank_data['WITHDRAWAL AMT'] > 500000) | (bank_data['DEPOSIT AMT'] > 500000)
+
+bank_data['Month'] = bank_data['DATE'].dt.to_period('M').astype(str)
+
+bank_data['Abs_Amount'] = bank_data[['WITHDRAWAL AMT', 'DEPOSIT AMT']].max(axis=1)
+
+bank_data['Day_of_Week'] = bank_data['DATE'].dt.day_name()
+
+bank_data['Transaction_Type'] = np.where(bank_data['DEPOSIT AMT'] > 0, 'Deposit', 'Withdrawal')
+
+# KPI calculations
+total_deposits = bank_data['DEPOSIT AMT'].sum()
+total_withdrawals = bank_data['WITHDRAWAL AMT'].sum()
+avg_balance = bank_data['BALANCE AMT'].mean()
+num_high_value = bank_data['Large_Transaction_Flag'].sum()
+neg_balance_accounts = bank_data[bank_data['BALANCE AMT'] < 0]['Account No'].nunique()
+total_transactions = len(bank_data)
+avg_transaction = bank_data['Abs_Amount'].mean()
+
+#visualizations
+##faceted area chart (Top 5 Accounts)
+top_5_accounts = bank_data['Account_Alias'].value_counts().nlargest(5).index
+
+trend_data = bank_data[bank_data['Account_Alias'].isin(top_5_accounts)].sort_values(['Account No', 'DATE'])
+
+fig_area_trend = px.area(trend_data, x='DATE', y='BALANCE AMT', facet_col='Account_Alias',facet_col_wrap = 2, height=900, color='Account_Alias', title="Daily Balance Perofrmance by Account", color_discrete_sequence = px.colors.qualitative.Safe, labels={'BALANCE AMT': 'Balance (₹)', 'DATE': 'Transaction Date'}, template='plotly_white')
+fig_area_trend.update_layout(showlegend=False, font=dict(size=11),
+plot_bgcolor='rgba(240, 240, 240, 0.5)',
+margin=dict(t=50, b=30))
+
+fig_area_trend.update_yaxes(matches=None, gridcolor = 'white')
+fig_area_trend.update_xaxes(showgrid=True, gridwidth=1, gridcolor = 'white')
+
+#bar graph of net cash flow
+acc_summary = bank_data.groupby('Account_Alias').agg({'DEPOSIT AMT': 'sum', 'WITHDRAWAL AMT': 'sum', 'Net_Transaction': 'sum', 'Account No': 'count'}).rename(columns={'Account No': 'Transaction_Count'}).reset_index().sort_values('Net_Transaction')
+
+fig_net_flow = px.bar(acc_summary, x='Net_Transaction', y='Account_Alias', orientation='h', title="Net Wealth Accumulation", color='Net_Transaction', color_continuous_scale='RdYlGn', labels={'Net_Transaction': 'Net Flow (₹)'}, template='plotly_white')
+fig_net_flow.update_layout(
+showlegend=False,
+plot_bgcolor='rgba(240, 240, 240, 0.5)',
+coloraxis_colorbar=dict(thickness=15, len=0.7))
+fig_net_flow.update_traces(hovertemplate='<b>%{y}</b><br>Net Flow: ₹%{x:,.0f}<extra></extra>')
+
+#monthly Inflow/Outflow
+m_flow = bank_data.groupby('Month')[['DEPOSIT AMT', 'WITHDRAWAL AMT']].sum().reset_index()
+
+m_flow_melt = m_flow.melt(id_vars='Month', var_name='Type', value_name='Amount')
+
+fig_monthly_flow = px.line(m_flow_melt, x='Month', y='Amount', title="Monthly Cash Volume", color_discrete_map={'DEPOSIT AMT': '#10b981', 'WITHDRAWAL AMT': '#ef4444'},template='plotly_white')
+fig_monthly_flow.update_traces(    line=dict(width=3),
+marker=dict(size=8))
+
+fig_monthly_flow.update_layout(
+hovermode='x unified',
+plot_bgcolor='rgba(240, 240, 240, 0.5)',
+legend=dict(x=0.02, y=0.98))
+
+#scatter plot: deposit vs withdrawal (high value flagged)
+scatter_frame = bank_data.sample(min(len(bank_data), 5000))
+
+fig_outliers = px.box(bank_data,y='Abs_Amount', points="outliers",title="Transaction Value Distribution & Outliers", color_discrete_sequence=['#667eea'], labels={'Abs_Amount': 'Transaction Amount (₹)'},   template='plotly_white')
+fig_outliers.update_layout(xaxis_title='',
+plot_bgcolor='rgba(240, 240, 240, 0.5)',
+showlegend=False)
+
+#top 10 largest transactions data
+top_10_data = bank_data.nlargest(10, 'Abs_Amount').copy()
+top_10_data = top_10_data.sort_values('Abs_Amount', ascending=True)
+
+top_10_data['Type'] = np.where(top_10_data['DEPOSIT AMT'] > 0, 'Deposit', 'Withdrawal')
+
+fig_top_10 = px.bar(top_10_data, x='Abs_Amount', y='TRANSACTION DETAILS',     orientation='h', color='Type',    title="Largest Single Transactions",    color_discrete_map={'Deposit': '#10b981', 'Withdrawal': '#ef4444'},    template='plotly_white')
+
+fig_top_10.update_layout(showlegend=True,xaxis_title='Amount (₹)',plot_bgcolor='rgba(240, 240, 240, 0.5)',legend=dict(x=0.98, y=0.02, xanchor='right', yanchor='bottom'))
+
+transaction_summary = bank_data['Transaction_Type'].value_counts().reset_index()
+transaction_summary.columns = ['Transaction_Type', 'Count']
+
+fig_pie = px.pie(transaction_summary,values='Count',names='Transaction_Type',title='<b>Transaction Count by Type</b>',color_discrete_map={'Deposit': '#10b981', 'Withdrawal': '#ef4444'},template='plotly_white')
+fig_pie.update_traces(textposition='inside', textinfo='percent+label',showlegend=True)
+
+heatmap_data = bank_data.groupby(['Month','Account_Alias'])['Abs_Amount'].sum().reset_index()
+
+heatmap_pivot = heatmap_data.pivot(index='Account_Alias', columns='Month', values='Abs_Amount').fillna(0)
+
+fig_heatmap = go.Figure(data=go.Heatmap(z=heatmap_pivot.values,x=heatmap_pivot.columns,y=heatmap_pivot.index,    colorscale=[[0, '#f3f4f6'],[0.25, '#3b82f6'],  
+[0.5, '#10b981'],[0.75, '#f59e0b'],[1, '#ef4444']],
+colorbar=dict(title='<b>Transaction<br>Amount (₹)</b>',   thickness=25,len=0.85,tickformat=',.0f',tickfont=dict(size=11)),hovertemplate='<b style="font-size:14px">%{y}</b><br>Month: <b>%{x}</b><br>Total Amount: <b>₹%{z:,.0f}</b><extra></extra>',text=[[f'₹{val/100000:.1f}L' for val in row] for row in heatmap_pivot.values],texttemplate='%{text}',textfont={"size": 11, "color": "white"},showscale=True))
+
+fig_heatmap.update_layout(title={'text': '<b>Account Activity by Month</b>','x': 0.5,'xanchor': 'center',      'font': {'size': 20, 'color': '#1f2937', 'family': 'Arial, sans-serif'}},xaxis=dict(title='<b>📅 Month</b>', side='bottom',tickangle=-45,showgrid=True,        gridwidth=1,gridcolor='rgba(229, 231, 235, 0.5)',        showline=True,linewidth=2,linecolor='#e5e7eb',        mirror=True),yaxis=dict(title='<b>🏦 Account</b>',        showgrid=True,gridwidth=1,gridcolor='rgba(229, 231, 235, 0.5)',showline=True,linewidth=2,linecolor='#e5e7eb',    mirror=True),height=650,width=1100, plot_bgcolor='#f9fafb',paper_bgcolor='white',font=dict(family='Arial, sans-serif', size=12, color='#374151'),  margin=dict(l=180, r=120, t=100, b=120), hovermode='closest',transition=dict(duration=200))
+```
+
+# Investor overview
+## Row {height="20%"}
+
+```{python}
+#| content: valuebox
+#| title: "Total Deposits"
+dict(icon="cash-coin", color="success", value=f"₹{total_deposits/1e7:,.0f} Cr")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Total Withdrawals"
+dict(icon="dash-circle", color="danger", value=f"₹{total_withdrawals/1e7:,.0f} Cr")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Net Cash Flow"
+net_cash_flow_value = total_deposits - total_withdrawals
+color_val = "success" if net_cash_flow_value >= 0 else "danger"
+dict(icon="arrow-up-right", color=color_val, value=f"₹{net_cash_flow_value/1e7:,.1f}Cr")
+```
+
+```{python}
+#| content: valuebox
+#| title: "High-Value Transaction"
+dict(icon="exclamation-triangle", color="warning", value=f"{num_high_value:,}")
+```
+
+## Account Perfromance {height="80%"}
+### {width="60%"}
+
+```{python}
+fig_area_trend
+```
+
+### {width="40%"}
+
+```{python}
+fig_net_flow
+```
+
+# Cash Flow Analysis
+## Row {height="50%"}
+### {width="50%"}
+```{python}
+fig_monthly_flow
+```
+
+### {width="50%"}
+
+```{python}
+fig_pie
+```
+
+## Row {height="50%"}
+### {width="100%"}
+
+```{python}
+fig_heatmap
+```
+
+# Transaction Insight
+## Row {height="50%"}
+### {width="50%"}
+
+```{python}
+fig_outliers
+```
+
+### {width="50%"}
+
+```{python}
+fig_top_10
+```
+
+
+# Data Source
+
+```{python}
+import itables.options as opt
+
+# Reset options to avoid i18n errors
+opt.features = ["paging", "ordering", "info", "buttons"]
+opt.maxBytes = 0  # Disable byte limit
+opt.classes = "display nowrap compact stripe hover"
+
+display_cols = ['Account No', 'DATE', 'TRANSACTION DETAILS', 'WITHDRAWAL AMT', 'DEPOSIT AMT', 'BALANCE AMT', 'Large_Transaction_Flag', 'Transaction_Type', 'Month']
+
+# Create a clean copy for display
+display_data = bank_data[display_cols].sort_values('DATE', ascending=False).copy()
+
+# Format currency columns for better readability
+display_data['WITHDRAWAL AMT'] = display_data['WITHDRAWAL AMT'].apply(lambda x: f"₹{x:,.2f}")
+display_data['DEPOSIT AMT'] = display_data['DEPOSIT AMT'].apply(lambda x: f"₹{x:,.2f}")
+display_data['BALANCE AMT'] = display_data['BALANCE AMT'].apply(lambda x: f"₹{x:,.2f}")
+
+show(display_data, classes="display nowrap compact stripe hover")
+```
