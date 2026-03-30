@@ -1,0 +1,220 @@
+---
+title: "Global HIV Epidemic Dashboard"
+author: Elvis Safary
+format:
+    dashboard:
+        embed-resources: true
+        orientation: rows
+theme: flatly
+execute:
+    echo: false
+    warning: false
+---
+
+<style>
+.value-box-container {border-radius: 10px;
+box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+transition: transform 0.3s ease, box-shadow 0.3s ease;}
+
+.value-box-container:hover {transform: translateY(-4px);box-shadow: 0 4px 16px rgba(0,0,0,0.15);}
+
+.value-box-value {font-size: 1.8rem !important;font-weight: 700 !important;
+    letter-spacing: -0.5px;}
+
+.value-box-title {font-size: 0.85rem !important;font-weight: 600 !important;
+color: #6b7280; text-transform: uppercase;
+    letter-spacing: 0.5px;}
+
+.dashboard-title {font-size: 2.5rem;   font-weight: 700;margin-bottom: 1rem;    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);   -webkit-background-clip: text;    -webkit-text-fill-color: transparent;
+    background-clip: text;}
+
+.section-header {font-size: 1.5rem;     font-weight: 600;border-left: 4px solid #667eea;padding-left: 12px;
+    margin-bottom: 1.5rem;}
+</style>
+
+
+```{python}
+#| label: setup
+#| include: false
+import pandas as pd
+import numpy as np
+import plotly.express as px
+from itables import show
+import itables.options as opt
+
+
+#load datasets
+combo_data = pd.read_csv('newly_hiv_infected_number_all_ages.csv')
+plhiv_raw = pd.read_csv('people_living_with_hiv_number_all_ages.csv')
+
+#data cleaning function
+def clean_hiv_data(combo_data, value_name):
+    data_long = combo_data.melt(id_vars=['country'], var_name='year', value_name=value_name)
+    data_long['year'] = pd.to_numeric(data_long['year'], errors='coerce')     #melt from wide to long (Years as columns to a single column)
+    
+    #handle numeric formatting (k, M, commas)
+    def clean_val(val):
+        if pd.isna(val) or val == '': 
+            return np.nan
+        val = str(val).replace(',', '').strip()
+        if 'M' in val: 
+            return float(val.replace('M', '')) * 1_000_000
+        if 'k' in val: 
+            return float(val.replace('k', '')) * 1_000
+        try: 
+            return float(val)
+        except: 
+            return np.nan
+    
+    #apply the cleaning function
+    data_long[value_name] = data_long[value_name].apply(clean_val)
+    return data_long  # This is correctly indented  now
+
+#clean and merge
+new_inf = clean_hiv_data(combo_data, 'new_infections')
+
+plhiv = clean_hiv_data(plhiv_raw, 'plhiv')
+
+hiv_data = pd.merge(new_inf, plhiv, on=['country', 'year'], how='inner')
+
+#assign regions
+region_mapping = {'Kenya': 'Africa', 'Tanzania': 'Africa', 'Uganda': 'Africa', 'South Africa': 'Africa',    'Thailand': 'Asia', 'India': 'Asia', 'China': 'Asia', 'Ukraine': 'Europe', 'Russia': 'Europe', 'USA': 'Americas', 'Brazil': 'Americas'}
+
+hiv_data['region'] = hiv_data['country'].map(region_mapping).fillna('Global Others')
+
+#derived metrics
+hiv_data['infection_ratio'] = (hiv_data['new_infections'] / hiv_data['plhiv']) * 100
+
+latest_year = int(hiv_data[hiv_data['plhiv'].notna()]['year'].max())
+
+latest_df = hiv_data[hiv_data['year'] == latest_year].copy()
+
+#KPI calculations
+total_plhiv = latest_df['plhiv'].sum()
+total_new = latest_df['new_infections'].sum()
+global_ratio = (total_new / total_plhiv) * 100
+total_countries = hiv_data['country'].nunique()
+
+#calculate change since 2010
+total_new_2010 = hiv_data[hiv_data['year'] == 2010]['new_infections'].sum()
+
+pct_change_2010 = ((total_new - total_new_2010) / total_new_2010) * 100
+
+#visualization
+#| title: "Global Prevalence Heatmap (PLHIV)"
+fig_map = px.choropleth(latest_df, locations="country", locationmode='country names', color="plhiv", hover_name="country",    color_continuous_scale=px.colors.sequential.Reds,
+title=f"People Living with HIV by Country ({latest_year})")
+
+fig_map.update_layout(margin=dict(l=0, r=0, t=40, b=0))
+
+#| title: "Top 10 Infection Ratios"
+# Higher ratio indicates faster epidemic growth relative to treatment base
+top_10 = latest_df.nlargest(10, 'infection_ratio')
+fig_bar = px.bar(top_10, x='infection_ratio', y='country', orientation='h',   color='infection_ratio', color_continuous_scale='Reds', labels={'infection_ratio': 'Ratio (New/PLHIV %)'}).update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
+
+#| title: "Global Trends: New Infections vs total PLHIV (2000-2011)"
+global_trend = hiv_data.groupby('year')[['new_infections', 'plhiv']].sum().reset_index()
+fig_line = px.line(global_trend, x='year', y=['new_infections', 'plhiv'], labels={'value': 'Count', 'variable': 'Metric'},color_discrete_map={'new_infections': '#e74c3c', 'plhiv': '#2980b9'},
+markers=True)
+fig_line.update_layout(showlegend=False,legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+
+#| title: "New Infections vs PLHIV Capacity"
+# Create a copy and handle NaN values
+latest_df_clean = latest_df.copy()
+
+# Replace NaN infection_ratio with a small default value (e.g., 0.1)
+latest_df_clean['infection_ratio'] = latest_df_clean['infection_ratio'].fillna(0.1)
+
+# Filter out zeros for log scale
+latest_df_clean = latest_df_clean[(latest_df_clean['plhiv'] > 0) & (latest_df_clean['new_infections'] > 0)]
+
+fig_scatter = px.scatter(latest_df_clean,   x="plhiv", y="new_infections", size="infection_ratio", color="region",    hover_name="country", log_x=True, log_y=True,    title="Scale of Epidemic vs. New Case Burden (Log Scale)", labels={"plhiv": "Total PLHIV", "new_infections": "New Infections"})
+
+```
+
+
+# Overview
+## Row {height="20%"}
+
+```{python}
+#| content: valuebox
+#| title: "People Living with HIV"
+dict(icon="person-plus", color="primary", value=f"{total_plhiv/1e6:.1f}M")
+```
+
+```{python}
+#| content: valuebox
+#| title: "New HIV Infections"
+dict(icon="graph-down", color="danger", value=f"{total_new/1e6:.2f}M")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Global Infection Ratio"
+dict(icon="globe", color="info", value=f"{global_ratio:.1f}%")
+```
+
+```{python}
+#| content: valuebox
+#| title: "% Change (Since 2010)"
+dict(icon="activity", color="warning", value=f"{pct_change_2010:+.1f}%")
+```
+
+## Row {height="80%"}
+### {width="50%"}
+
+```{python}
+fig_map
+```
+
+### {width="50%"}
+
+```{python}
+fig_bar
+```
+
+# Epidemic Analysis
+## Row {height="20%"}
+```{python}
+#| content: valuebox
+#| title: "Countries Tracked"
+dict(icon="globe-americas", color="info", value=f"{total_countries}")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Latest Data Year"
+dict(icon="calendar-check", color="teal", value=f"{latest_year}")
+```
+
+## Row {height="80%"}
+### Column {width="50%"}
+
+```{python}
+fig_line
+```
+
+### Column {width="50%"}
+
+```{python}
+fig_scatter
+```
+
+# Data Source and Summary
+
+## Summary of Findings {height="40%"}
+
+Epidemic Control: The Global Infection Ratio of 6.3% suggests a slowing trend, but regional disparities remain stark.
+
+Top Performer: Asia showed the most significant decrease in new infections (-72%) between 2000 and 2011.
+
+Critical Gaps: Countries with high infection ratios (seen in the bar chart) represent areas where the epidemic is outpacing current interventions.
+
+Log Scale Insights: The scatter plot shows that even countries with massive PLHIV populations are successfully reducing new case counts, moving toward the 95-95-95 targets.
+
+## Row {height="60%"}
+
+```{python}
+opt.classes = ["display", "nowrap", "compact"]
+show(hiv_data[['country', 'year', 'new_infections', 'plhiv', 'region', 'infection_ratio']], paging=True, buttons=['csv', 'excel'])
+```
