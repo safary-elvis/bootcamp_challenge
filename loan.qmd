@@ -1,0 +1,176 @@
+---
+title: "Loan Portfolio Risk Dashboard"
+author: Elvis Safary
+format:
+    dashboard:
+        embed-resources: true
+        orientation: rows
+theme: sandstone
+execute:
+    echo: false
+    warning: false
+---
+
+<style>
+.value-box-value { 
+    font-size: 1.3rem !important; /* Smaller font to fit 5 boxes */
+    font-weight: 700 !important; 
+}
+.value-box-title { 
+    font-size: 0.7rem !important; /* Smaller title */
+    font-weight: 600 !important; 
+    text-transform: uppercase; 
+}
+</style>
+
+
+```{python}
+#| label: setup
+#| include: false
+import pandas as pd
+import numpy as np
+import plotly.express as px
+from itables import show
+import itables.options as opt
+
+#load Dataset
+loan_data = pd.read_csv('loans_full_schema.csv')
+
+#clean and prepare
+#create derived metrics
+loan_data['loan_to_income_ratio'] = loan_data['loan_amount'] / loan_data['annual_income']
+loan_data['interest_burden_index'] = loan_data['interest_rate'] * loan_data['debt_to_income']
+loan_data['repayment_ratio'] = loan_data['paid_principal'] / loan_data['loan_amount']
+
+#convert issue_month to datetime
+loan_data['issue_date'] = pd.to_datetime(loan_data['issue_month'], format='%b-%Y')
+
+#KPI calculations
+avg_loan_amount = loan_data['loan_amount'].mean()
+avg_interest_rate = loan_data['interest_rate'].mean()
+total_fully_paid = (loan_data['loan_status'] == 'Fully Paid').sum()
+default_late_list = ['Late (31-120 days)', 'Late (16-30 days)', 'Charged Off']
+pct_default_late = (loan_data['loan_status'].isin(default_late_list).sum() / len(loan_data)) * 100
+avg_dti = loan_data['debt_to_income'].mean()
+total_loans = len(loan_data)
+
+#visualizations
+#bar chart: Avg interest rate by grade
+avg_int_grade = loan_data.groupby('grade')['interest_rate'].mean().reset_index()
+
+fig_bar = px.bar(avg_int_grade, x='grade', y='interest_rate', color='grade', text_auto= '.1f',  color_discrete_sequence=px.colors.qualitative.Safe, title="Average Interest Rate by Credit Grade")
+
+fig_bar.update_layout(showlegend=False,    yaxis_title="Avg Interest Rate (%)",    xaxis_title="Loan Grade")
+
+fig_bar.update_traces(textposition='outside', 
+cliponaxis=False)
+
+
+#pie Chart: distribution of loan purposes
+fig_pie = px.pie(loan_data, names='loan_purpose', title="Distribution of Loan Purposes", hole=0.4)
+
+#| title: "Risk/Reward: Loan Amount vs. Interest Rate"
+fig_scatter = px.scatter(loan_data, x='loan_amount',     y='interest_rate', color='grade',   marginal_x='box', marginal_y='violin',  
+title="Risk/Reward: Loan Amount vs. Interest Rate", 
+opacity=0.5, labels={'loan_amount': 'Loan Amount ($)', 'interest_rate': 'Interest Rate (%)'})
+
+# Stacked Column Chart: Loan status by application type
+fig_stacked = px.histogram(loan_data, x='application_type', color='loan_status', barmode='stack', title="Loan Performance by Application Type")
+
+#line chart: Monthly issuance trends by grade
+monthly_trends = loan_data.groupby(['issue_date', 'grade']).size().reset_index(name='loan_count')
+
+fig_line = px.line(monthly_trends, x='issue_date', y='loan_count', color='grade',                  title="Monthly Issuance Volume by Grade", markers=True)
+```
+
+# Overview
+## Row {height="20%"}
+
+```{python}
+#| content: valuebox
+#| title: "Average Loan Amount"
+dict(icon="cash-stack", color="primary", value=f"${avg_loan_amount:,.0f}")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Average Interest Rate"
+dict(icon="globe", color="info", value=f"{avg_interest_rate:.1f}%")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Fully Paid Loans"
+dict(icon="check-circle", color="success", value=f"{total_fully_paid:,}")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Default/Late Rate"
+dict(icon="exclamation-triangle", color="danger", value=f"{pct_default_late:.2f}%")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Average Debt-to-Income"
+dict(icon="wallet2", color="warning", value=f"{avg_dti:.1f}%")
+```
+
+
+## Row {height="80%"}
+### Column {width="50%"}
+
+```{python}
+fig_bar
+```
+
+### Column {width="50%"}
+
+```{python}
+fig_pie
+```
+
+# Risk Analysis
+## Row {height="15%"}
+
+```{python}
+#| content: valuebox
+#| title: "Total Borrowers"
+dict(icon="person-plus", color="info", value=f"{total_loans:,}")
+```
+
+```{python}
+#| content: valuebox
+#| title: "Average Interest Burden Index"
+dict(icon="speedometer2", color="secondary", value=f"{loan_data['interest_burden_index'].mean():.0f}")
+```
+
+## Row {height="85%"}
+
+### Column {width="50%"}
+```{python}
+fig_scatter
+```
+
+### Column {width="50%"}
+
+```{python}
+fig_stacked
+```
+
+# Data Source and Summary
+*Summary of Findings*
+
+Credit Risk & Rates: There is a linear correlation between loan grade and interest rate, with Grade G borrowers paying nearly triple the interest of Grade A borrowers.
+
+Default Concentration: While the overall default/late rate is low (1.11%), these cases are concentrated in lower credit grades and specific purposes like "small business."
+
+Debt Consolidation Dominance: The majority of the portfolio consists of debt consolidation loans, indicating a high demand for credit refinancing among borrowers.
+
+Application Insights: Individual applications significantly outweigh joint applications, but joint applications tend to show slightly different status distributions, suggesting a diversification of risk.
+
+
+```{python}
+opt.classes = ["display", "nowrap", "compact"]
+show(loan_data[['state', 'annual_income', 'loan_amount', 'grade', 'interest_rate', 'loan_status', 'loan_purpose']], paging=True, buttons=['csv', 'excel'])
+```
